@@ -65,11 +65,10 @@ namespace ASCOM.DIYFocuser
         /// The DeviceID is used by ASCOM applications to load the driver at runtime.
         /// </summary>
         internal static string driverID = "ASCOM.DIYFocuser.Focuser";
-        // TODO Change the descriptive string for your driver then remove this line
         /// <summary>
-        /// Driver description that displays in the ASCOM Chooser.
+        /// DIY Adruino Focuser.
         /// </summary>
-        private static string driverDescription = "ASCOM Focuser Driver for DIYFocuser.";
+        private static string driverDescription = "ArduinoFocuser";
 
         internal static string comPortProfileName = "COM Port"; // Constants used for Profile persistence
         internal static string comPortDefault = "COM1";
@@ -83,6 +82,11 @@ namespace ASCOM.DIYFocuser
         /// Private variable to hold the connected state
         /// </summary>
         private bool connectedState;
+
+        /// <summary>
+        /// Serial port object.
+        /// </summary>
+        private Serial objSerial;
 
         /// <summary>
         /// Private variable to hold an ASCOM Utilities object
@@ -147,6 +151,12 @@ namespace ASCOM.DIYFocuser
                     WriteProfile(); // Persist device configuration values to the ASCOM Profile store
                 }
             }
+        }
+
+        private double parseSerialCommNumeric()
+        {
+            String input = objSerial.ReceiveTerminated("#");
+            return Convert.ToDouble(input.TrimEnd('#'));
         }
 
         public ArrayList SupportedActions
@@ -222,13 +232,23 @@ namespace ASCOM.DIYFocuser
                 {
                     connectedState = true;
                     tl.LogMessage("Connected Set", "Connecting to port " + comPort);
-                    // TODO connect to the device
+                    // Connect to device
+                    objSerial = new Serial();
+                    objSerial.PortName = comPort.ToUpper();  
+                    objSerial.Speed = SerialSpeed.ps57600;
+                    objSerial.Connected = true;
+                    objSerial.ReceiveTimeout = 5; // Wait for 5s before timeout.
                 }
                 else
                 {
                     connectedState = false;
                     tl.LogMessage("Connected Set", "Disconnecting from port " + comPort);
-                    // TODO disconnect from the device
+
+                    // Disconnect from device.
+                    objSerial.ClearBuffers();
+                    objSerial.Connected = false;
+                    objSerial.Dispose();
+                    objSerial = null;
                 }
             }
         }
@@ -291,7 +311,6 @@ namespace ASCOM.DIYFocuser
         #region IFocuser Implementation
 
         private int focuserPosition = 0; // Class level variable to hold the current focuser position
-        private const int focuserSteps = 10000;
 
         public bool Absolute
         {
@@ -305,7 +324,10 @@ namespace ASCOM.DIYFocuser
         public void Halt()
         {
             tl.LogMessage("Halt", "Not implemented");
-            throw new ASCOM.MethodNotImplementedException("Halt");
+            // Doesn't do anything. We cannot stop the Arduino using ASCOM using current firmware.
+            // One idea is to have a new "isMoving" flag in Arduino, and each time move only one step in the main loop.
+            // Do extra updates such as LCD display etc only if isMoving is false. This allows receiving the HALT command
+            // and stopping if needed.
         }
 
         public bool IsMoving
@@ -335,8 +357,9 @@ namespace ASCOM.DIYFocuser
         {
             get
             {
-                tl.LogMessage("MaxIncrement Get", focuserSteps.ToString());
-                return focuserSteps; // Maximum change in one move
+                int maxstep = MaxStep;
+                tl.LogMessage("MaxIncrement Get", maxstep.ToString());
+                return maxstep; // Maximum change in one move
             }
         }
 
@@ -344,14 +367,21 @@ namespace ASCOM.DIYFocuser
         {
             get
             {
-                tl.LogMessage("MaxStep Get", focuserSteps.ToString());
-                return focuserSteps; // Maximum extent of the focuser, so position range is 0 to 10,000
+                int maxsteps;
+                CheckConnected("Must be connected to Arduino.");
+                objSerial.Transmit("MAXSTEPS#");
+                maxsteps = (int)parseSerialCommNumeric();
+                tl.LogMessage("MaxStep Get", maxsteps.ToString());
+                return maxsteps; // Maximum extent of the focuser.
             }
         }
 
         public void Move(int Position)
         {
+            // TODO: Move and wait for a message from Arduino to confirm that move suceeded. Increase timeout duration for serial comm.
             tl.LogMessage("Move", Position.ToString());
+            CheckConnected("Must be connected to Arduino.");
+            objSerial.Transmit(String.Format("MOVE {0}#", Position));
             focuserPosition = Position; // Set the focuser position
         }
 
@@ -359,7 +389,9 @@ namespace ASCOM.DIYFocuser
         {
             get
             {
-                return focuserPosition; // Return the focuser position
+                CheckConnected("Must be connected to Arduino.");
+                objSerial.Transmit("POSITION#");
+                return (int)parseSerialCommNumeric();
             }
         }
 
@@ -367,8 +399,7 @@ namespace ASCOM.DIYFocuser
         {
             get
             {
-                tl.LogMessage("StepSize Get", "Not implemented");
-                throw new ASCOM.PropertyNotImplementedException("StepSize", false);
+                throw new ASCOM.PropertyNotImplementedException("Not implemented", false);
             }
         }
 
@@ -399,8 +430,12 @@ namespace ASCOM.DIYFocuser
         {
             get
             {
-                tl.LogMessage("Temperature Get", "Not implemented");
-                throw new ASCOM.PropertyNotImplementedException("Temperature", false);
+                double temperature;
+                CheckConnected("Must be connected to Arduino.");
+                objSerial.Transmit("TEMPERATURE#");
+                temperature = parseSerialCommNumeric();
+                tl.LogMessage("Temperature Get", temperature.ToString());
+                return temperature;
             }
         }
 
