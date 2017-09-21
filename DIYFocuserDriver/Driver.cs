@@ -365,11 +365,22 @@ namespace ASCOM.DIYFocuser
             }
         }
 
+        public void Wait(int Seconds)
+        {
+            Stopwatch stopWatch = new Stopwatch();
+            while (stopWatch.ElapsedMilliseconds < Seconds * 1e3) {}
+        }
+
         public void Move(int Position)
         {
             tl.LogMessage("Move", Position.ToString());
             CheckConnected("Must be connected to Arduino.");
             CommandBlind(String.Format("MOVE {0}", Position));
+            Stopwatch stopWatch = new Stopwatch();
+            while ((stopWatch.ElapsedMilliseconds < 60000) & IsMoving)
+            {
+                Wait(1000);
+            }
             focuserPosition = Position; // Set the focuser position
         }
 
