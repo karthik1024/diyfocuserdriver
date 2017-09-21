@@ -1,17 +1,12 @@
 //tabs=4
 // --------------------------------------------------------------------------------
-// TODO fill in this information for your driver, then remove this line!
 //
 // ASCOM Focuser driver for DIYFocuser
 //
-// Description:	Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam 
-//				nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam 
-//				erat, sed diam voluptua. At vero eos et accusam et justo duo 
-//				dolores et ea rebum. Stet clita kasd gubergren, no sea takimata 
-//				sanctus est Lorem ipsum dolor sit amet.
+// Description:	ASCOM Focuser driver for Arduino based DIYFocuser.
 //
 // Implements:	ASCOM Focuser interface version: <To be completed by driver developer>
-// Author:		(XXX) Your N. Here <your@email.here>
+// Author:		Karthik Vijayraghavan
 //
 // Edit Log:
 //
@@ -48,10 +43,6 @@ namespace ASCOM.DIYFocuser
     // The Guid attribute sets the CLSID for ASCOM.DIYFocuser.Focuser
     // The ClassInterface/None addribute prevents an empty interface called
     // _DIYFocuser from being created and used as the [default] interface
-    //
-    // TODO Replace the not implemented exceptions with code to implement the function or
-    // throw the appropriate ASCOM exception.
-    //
 
     /// <summary>
     /// ASCOM Focuser Driver for DIYFocuser.
@@ -153,9 +144,8 @@ namespace ASCOM.DIYFocuser
             }
         }
 
-        private double parseSerialCommNumeric()
+        private double parseSerialCommNumeric(string input)
         {
-            String input = objSerial.ReceiveTerminated("#");
             return Convert.ToDouble(input.TrimEnd('#'));
         }
 
@@ -178,19 +168,22 @@ namespace ASCOM.DIYFocuser
             CheckConnected("CommandBlind");
             // Call CommandString and return as soon as it finishes
             this.CommandString(command, raw);
-            // or
-            throw new ASCOM.MethodNotImplementedException("CommandBlind");
-            // DO NOT have both these sections!  One or the other
         }
 
         public bool CommandBool(string command, bool raw = false)
         {
             CheckConnected("CommandBool");
             string ret = CommandString(command, raw);
-            // TODO decode the return string and return true or false
-            // or
-            throw new ASCOM.MethodNotImplementedException("CommandBool");
-            // DO NOT have both these sections!  One or the other
+            if (ret.Equals("1"))
+            {
+                return true;
+            } else if (ret.Equals("0"))
+            {
+                return false;
+            } else
+            {
+                throw new ASCOM.InvalidValueException("Unable to decode value to boolean.");
+            }
         }
 
         public string CommandString(string command, bool raw = false)
@@ -199,8 +192,8 @@ namespace ASCOM.DIYFocuser
             // it's a good idea to put all the low level communication with the device here,
             // then all communication calls this function
             // you need something to ensure that only one command is in progress at a time
-
-            throw new ASCOM.MethodNotImplementedException("CommandString");
+            objSerial.Transmit(command + '#');
+            return objSerial.ReceiveTerminated("#").TrimEnd('#');
         }
 
         public void Dispose()
@@ -230,7 +223,6 @@ namespace ASCOM.DIYFocuser
 
                 if (value)
                 {
-                    connectedState = true;
                     tl.LogMessage("Connected Set", "Connecting to port " + comPort);
                     // Connect to device
                     objSerial = new Serial();
@@ -238,6 +230,7 @@ namespace ASCOM.DIYFocuser
                     objSerial.Speed = SerialSpeed.ps57600;
                     objSerial.Connected = true;
                     objSerial.ReceiveTimeout = 5; // Wait for 5s before timeout.
+                    connectedState = true;
                 }
                 else
                 {
@@ -300,7 +293,7 @@ namespace ASCOM.DIYFocuser
         {
             get
             {
-                string name = "Short driver name - please customise";
+                string name = "ArduinoFocuserDIYDriver";
                 tl.LogMessage("Name Get", name);
                 return name;
             }
@@ -323,11 +316,8 @@ namespace ASCOM.DIYFocuser
 
         public void Halt()
         {
-            tl.LogMessage("Halt", "Not implemented");
-            // Doesn't do anything. We cannot stop the Arduino using ASCOM using current firmware.
-            // One idea is to have a new "isMoving" flag in Arduino, and each time move only one step in the main loop.
-            // Do extra updates such as LCD display etc only if isMoving is false. This allows receiving the HALT command
-            // and stopping if needed.
+            tl.LogMessage("Halt", "Halting focuser.");
+            CommandBlind("HALT");
         }
 
         public bool IsMoving
@@ -335,7 +325,7 @@ namespace ASCOM.DIYFocuser
             get
             {
                 tl.LogMessage("IsMoving Get", false.ToString());
-                return false; // This focuser always moves instantaneously so no need for IsMoving ever to be True
+                return CommandBool("ISMOVING");
             }
         }
 
@@ -357,7 +347,7 @@ namespace ASCOM.DIYFocuser
         {
             get
             {
-                int maxstep = MaxStep;
+                int maxstep = (int)(MaxStep / 10);
                 tl.LogMessage("MaxIncrement Get", maxstep.ToString());
                 return maxstep; // Maximum change in one move
             }
@@ -369,8 +359,7 @@ namespace ASCOM.DIYFocuser
             {
                 int maxsteps;
                 CheckConnected("Must be connected to Arduino.");
-                objSerial.Transmit("MAXSTEPS#");
-                maxsteps = (int)parseSerialCommNumeric();
+                maxsteps = (int)parseSerialCommNumeric(CommandString("MAXSTEPS"));
                 tl.LogMessage("MaxStep Get", maxsteps.ToString());
                 return maxsteps; // Maximum extent of the focuser.
             }
@@ -378,10 +367,9 @@ namespace ASCOM.DIYFocuser
 
         public void Move(int Position)
         {
-            // TODO: Move and wait for a message from Arduino to confirm that move suceeded. Increase timeout duration for serial comm.
             tl.LogMessage("Move", Position.ToString());
             CheckConnected("Must be connected to Arduino.");
-            objSerial.Transmit(String.Format("MOVE {0}#", Position));
+            CommandBlind(String.Format("MOVE {0}", Position));
             focuserPosition = Position; // Set the focuser position
         }
 
@@ -390,8 +378,7 @@ namespace ASCOM.DIYFocuser
             get
             {
                 CheckConnected("Must be connected to Arduino.");
-                objSerial.Transmit("POSITION#");
-                return (int)parseSerialCommNumeric();
+                return (int)parseSerialCommNumeric(CommandString("POSITION"));
             }
         }
 
@@ -399,7 +386,7 @@ namespace ASCOM.DIYFocuser
         {
             get
             {
-                throw new ASCOM.PropertyNotImplementedException("Not implemented", false);
+                return 1;
             }
         }
 
@@ -432,8 +419,7 @@ namespace ASCOM.DIYFocuser
             {
                 double temperature;
                 CheckConnected("Must be connected to Arduino.");
-                objSerial.Transmit("TEMPERATURE#");
-                temperature = parseSerialCommNumeric();
+                temperature = parseSerialCommNumeric(CommandString("TEMPERATURE"));
                 tl.LogMessage("Temperature Get", temperature.ToString());
                 return temperature;
             }
