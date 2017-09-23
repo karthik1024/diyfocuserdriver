@@ -167,13 +167,16 @@ namespace ASCOM.DIYFocuser
         {
             CheckConnected("CommandBlind");
             // Call CommandString and return as soon as it finishes
-            this.CommandString(command, raw);
+            objSerial.Transmit(command + '#');
         }
 
         public bool CommandBool(string command, bool raw = false)
         {
             CheckConnected("CommandBool");
-            string ret = CommandString(command, raw);
+            CommandBlind(command, raw);
+            string ret = objSerial.ReceiveTerminated("#").TrimEnd('#');
+            ret = ret.Replace("\n", "");
+            ret = ret.Replace("\r", "");
             if (ret.Equals("1"))
             {
                 return true;
@@ -192,7 +195,7 @@ namespace ASCOM.DIYFocuser
             // it's a good idea to put all the low level communication with the device here,
             // then all communication calls this function
             // you need something to ensure that only one command is in progress at a time
-            objSerial.Transmit(command + '#');
+            CommandBlind(command, raw);
             return objSerial.ReceiveTerminated("#").TrimEnd('#');
         }
 
@@ -225,11 +228,14 @@ namespace ASCOM.DIYFocuser
                 {
                     tl.LogMessage("Connected Set", "Connecting to port " + comPort);
                     // Connect to device
-                    objSerial = new Serial();
-                    objSerial.PortName = comPort.ToUpper();  
-                    objSerial.Speed = SerialSpeed.ps57600;
+                    objSerial = new Serial()
+                    {
+                        PortName = comPort.ToUpper(),
+                        Speed = SerialSpeed.ps57600,
+                        DTREnable = false,
+                        ReceiveTimeout = 5 // Wait for 5s before timeout.
+                    };
                     objSerial.Connected = true;
-                    objSerial.ReceiveTimeout = 5; // Wait for 5s before timeout.
                     connectedState = true;
                 }
                 else
@@ -368,6 +374,7 @@ namespace ASCOM.DIYFocuser
         public void Wait(int Seconds)
         {
             Stopwatch stopWatch = new Stopwatch();
+            stopWatch.Start();
             while (stopWatch.ElapsedMilliseconds < Seconds * 1e3) {}
         }
 
@@ -377,9 +384,10 @@ namespace ASCOM.DIYFocuser
             CheckConnected("Must be connected to Arduino.");
             CommandBlind(String.Format("MOVE {0}", Position));
             Stopwatch stopWatch = new Stopwatch();
+            stopWatch.Start();
             while ((stopWatch.ElapsedMilliseconds < 60000) & IsMoving)
             {
-                Wait(1000);
+                Wait(1);
             }
             focuserPosition = Position; // Set the focuser position
         }
